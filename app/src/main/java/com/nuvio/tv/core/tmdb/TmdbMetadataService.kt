@@ -57,6 +57,66 @@ class TmdbMetadataService(
     private val entityHeaderCache = ConcurrentHashMap<String, TmdbEntityHeader>()
     private val entityRailCache = ConcurrentHashMap<String, List<MetaPreview>>()
     private val entityBrowseCache = ConcurrentHashMap<String, TmdbEntityBrowseData>()
+    private val localizedTitleCache = ConcurrentHashMap<String, String>()
+
+    /**
+     * Fetches a localized display title for a known TMDB id without loading the
+     * rest of the metadata payload. Trakt library responses otherwise default
+     * to English titles.
+     */
+    suspend fun fetchLocalizedTitle(
+        tmdbId: Int,
+        contentType: ContentType,
+        language: String
+    ): String? = withContext(ioDispatcher) {
+        val normalizedLanguage = normalizeTmdbLanguage(language)
+        if (normalizedLanguage.startsWith("en", ignoreCase = true)) {
+            return@withContext null
+        }
+
+        val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:title"
+        localizedTitleCache[cacheKey]?.let { return@withContext it }
+
+        val details = try {
+            when (contentType) {
+                ContentType.SERIES, ContentType.TV ->
+                    tmdbApi.getTvDetails(tmdbId, TMDB_API_KEY, normalizedLanguage).body()
+                else ->
+                    tmdbApi.getMovieDetails(tmdbId, TMDB_API_KEY, normalizedLanguage).body()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to fetch localized title for tmdb:$tmdbId: ${e.message}")
+            return@withContext null
+        }
+
+        val rawTitle = (details?.title ?: details?.name)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val originalTitle = (details?.originalTitle ?: details?.originalName)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+        // TMDB can return the original title when a translation is missing.
+        // Keep the Trakt title in that case instead of pretending it is a
+        // translation for the selected interface language.
+        val localizedTitle = if (
+            rawTitle != null &&
+            originalTitle != null &&
+            rawTitle.equals(originalTitle, ignoreCase = true) &&
+            !normalizedLanguage.startsWith("en", ignoreCase = true) &&
+            details?.originalLanguage != null &&
+            !normalizedLanguage.startsWith(details.originalLanguage, ignoreCase = true)
+        ) {
+            null
+        } else {
+            rawTitle
+        }
+
+        localizedTitle?.let { localizedTitleCache[cacheKey] = it }
+        localizedTitle
+    }
 
     suspend fun fetchEnrichment(
         tmdbId: String,

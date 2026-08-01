@@ -3,6 +3,7 @@ package com.nuvio.tv.data.repository
 import android.content.Context
 import com.nuvio.tv.R
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.trakt.TraktMetadataLocalizationService
 import com.nuvio.tv.core.trakt.traktBestBackdropUrl
 import com.nuvio.tv.core.trakt.traktBestLogoUrl
 import com.nuvio.tv.core.trakt.traktBestPosterUrl
@@ -48,7 +49,8 @@ class TraktLibraryService @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val traktApi: TraktApi,
     private val traktAuthService: TraktAuthService,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val traktMetadataLocalizationService: TraktMetadataLocalizationService
 ) {
     private data class Snapshot(
         val listTabs: List<LibraryListTab> = emptyList(),
@@ -480,16 +482,20 @@ class TraktLibraryService @Inject constructor(
             entry.copy(listKeys = membership[key].orEmpty())
         }.sortedByDescending { it.listedAt }
 
+        val localizedAllEntries = traktMetadataLocalizationService.localizeLibraryEntries(allEntries)
+        val localizedById = localizedAllEntries.associateBy { contentKey(it.id, it.type) }
+
         val entriesByList = rawEntriesByList.mapValues { (_, entries) ->
             entries.map { entry ->
-                entry.copy(listKeys = membership[contentKey(entry.id, entry.type)].orEmpty())
+                val withMembership = entry.copy(listKeys = membership[contentKey(entry.id, entry.type)].orEmpty())
+                localizedById[contentKey(entry.id, entry.type)] ?: withMembership
             }
         }
 
         return Snapshot(
             listTabs = tabs,
             entriesByList = entriesByList,
-            allEntries = allEntries,
+            allEntries = localizedAllEntries,
             membershipByContent = membership.mapValues { it.value.toSet() },
             updatedAtMs = System.currentTimeMillis()
         )

@@ -34,6 +34,43 @@ import retrofit2.Response
 class TmdbMetadataServiceTest {
 
     @Test
+    fun `fetchLocalizedTitle returns the title for the requested language`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.getMovieDetails(10, any(), "he") } returns Response.success(
+            TmdbDetailsResponse(
+                id = 10,
+                title = "כותרת מקומית",
+                originalTitle = "Original title",
+                originalLanguage = "en"
+            )
+        )
+
+        val service = TmdbMetadataService(api)
+
+        assertEquals(
+            "כותרת מקומית",
+            service.fetchLocalizedTitle(10, ContentType.MOVIE, "he")
+        )
+    }
+
+    @Test
+    fun `fetchLocalizedTitle ignores an untranslated original title`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.getTvDetails(20, any(), "fr") } returns Response.success(
+            TmdbDetailsResponse(
+                id = 20,
+                name = "Original show",
+                originalName = "Original show",
+                originalLanguage = "en"
+            )
+        )
+
+        val service = TmdbMetadataService(api)
+
+        assertNull(service.fetchLocalizedTitle(20, ContentType.SERIES, "fr"))
+    }
+
+    @Test
     fun `fetchEnrichment maps tmdb ids onto production and network companies`() = runTest {
         val api = mockk<TmdbApi>()
         coEvery { api.getMovieDetails(any(), any(), any()) } returns Response.success(
