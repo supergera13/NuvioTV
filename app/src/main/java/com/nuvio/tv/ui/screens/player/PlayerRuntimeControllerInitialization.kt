@@ -82,6 +82,7 @@ import com.nuvio.tv.data.repository.PlaybackIssueErrorInput
 import com.nuvio.tv.domain.model.Subtitle
 import io.github.peerless2012.ass.media.kt.buildWithAssSupport
 import io.github.peerless2012.ass.media.type.AssRenderType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -161,7 +162,7 @@ internal fun PlayerRuntimeController.initializePlayer(
         return
     }
 
-    scope.launch {
+    playerInitializationCoordinator.launchLatest {
         try {
             if (allowEngineFailover) {
                 startupEngineFailoverTriggered = false
@@ -289,7 +290,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 } finally {
                     mpvInitializationInProgress = false
                 }
-                return@launch
+                return@launchLatest
             }
             mpvInitializationInProgress = false
 
@@ -1712,6 +1713,8 @@ internal fun PlayerRuntimeController.initializePlayer(
             if (!startupSubtitlePreparation.fetchCompleted) {
                 fetchAddonSubtitles()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (
                 maybeAutoSwitchInternalPlayerOnStartupError(
@@ -1719,7 +1722,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     allowEngineFailover = allowEngineFailover
                 )
             ) {
-                return@launch
+                return@launchLatest
             }
             val displayError = e.toDisplayMessage(context, context.getString(com.nuvio.tv.R.string.player_error_initialize_failed))
             val diagnostics = LastPlaybackDiagnostics(
